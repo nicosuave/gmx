@@ -386,37 +386,61 @@ fn cmd_kill(name: Option<&str>) -> Result<()> {
 
 fn cmd_ls() -> Result<()> {
     let registry = SessionRegistry::load()?;
-
-    // Also check zmx for live sessions (local only for now, remote per-registry)
     let config = GmxConfig::load()?;
 
-    if registry.sessions.is_empty() {
+    // Discover ALL gmx sessions from zmx directly (not just registry)
+    let all_zmx = zmx::list_sessions(None).unwrap_or_default();
+
+    // Group zmx sessions by gmx session name (strip .N suffix)
+    let mut discovered: std::collections::BTreeMap<String, usize> =
+        std::collections::BTreeMap::new();
+    for s in &all_zmx {
+        let group = session::extract_gmx_session_name(&s.name);
+        *discovered.entry(group).or_default() += 1;
+    }
+
+    // Merge registry entries (for remote/dir info) with discovered sessions
+    // Also include registry entries for dead sessions
+    for (name, entry) in &registry.sessions {
+        if !discovered.contains_key(name.as_str()) {
+            let remote = match &entry.remote {
+                Some(r) => resolve_remote(&config, Some(r)).ok().flatten(),
+                None => None,
+            };
+            let remote_count = if remote.is_some() {
+                zmx::find_sessions_by_prefix(name, remote.as_ref())
+                    .unwrap_or_default()
+                    .len()
+            } else {
+                0
+            };
+            discovered.insert(name.clone(), remote_count);
+        }
+    }
+
+    if discovered.is_empty() {
         eprintln!("No sessions. Create one with: gmx new <name>");
         return Ok(());
     }
 
     println!("{:<20} {:<12} {:<8} DIR", "SESSION", "REMOTE", "PANES");
 
-    for (name, entry) in &registry.sessions {
-        let remote = match &entry.remote {
-            Some(r) => resolve_remote(&config, Some(r)).ok().flatten(),
-            None => None,
+    for (name, pane_count) in &discovered {
+        let (remote_label, dir) = match registry.get(name) {
+            Some(entry) => (
+                entry.remote.as_deref().unwrap_or("local"),
+                entry.dir.as_str(),
+            ),
+            None => ("local", "-"),
         };
 
-        let sessions = zmx::find_sessions_by_prefix(name, remote.as_ref()).unwrap_or_default();
-        let pane_count = sessions.len();
-        let remote_label = entry.remote.as_deref().unwrap_or("local");
-
-        let status = if pane_count > 0 {
+        let status = if *pane_count > 0 {
             format!("{}", pane_count)
         } else {
             "dead".to_string()
         };
 
-        println!(
-            "{:<20} {:<12} {:<8} {}",
-            name, remote_label, status, entry.dir
-        );
+        println!("{:<20} {:<12} {:<8} {}", name, remote_label, status, dir);
     }
 
     Ok(())

@@ -37,13 +37,19 @@ fn parse_zmx_list(output: &str) -> Vec<ZmxSession> {
                 .filter_map(|field| field.split_once('='))
                 .collect();
 
-            let name = fields.get("session_name")?.to_string();
+            let name = fields
+                .get("session_name")
+                .or_else(|| fields.get("name"))?
+                .to_string();
             let pid = fields.get("pid").map(|s| s.to_string());
             let clients = fields
                 .get("clients")
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(0);
-            let started_in = fields.get("started_in").map(|s| s.to_string());
+            let started_in = fields
+                .get("started_in")
+                .or_else(|| fields.get("start_dir"))
+                .map(|s| s.to_string());
 
             Some(ZmxSession {
                 name,
@@ -267,6 +273,23 @@ mod tests {
         assert_eq!(sessions[1].name, "current.1");
         assert_eq!(sessions[1].clients, 1);
         assert!(sessions[1].is_attached());
+    }
+
+    #[test]
+    fn test_parse_zmx_list_new_format() {
+        // zmx 0.4+ uses "name=" instead of "session_name=" and "start_dir=" instead of "started_in="
+        let output = "name=potato.1\tpid=49714\tclients=1\tcreated=1773929917\tstart_dir=/Users/nico/Code/project\n\
+                       name=potato.2\tpid=50072\tclients=0\tstart_dir=/Users/nico/Code/project\n";
+        let sessions = parse_zmx_list(output);
+        assert_eq!(sessions.len(), 2);
+        assert_eq!(sessions[0].name, "potato.1");
+        assert!(sessions[0].is_attached());
+        assert_eq!(
+            sessions[0].started_in,
+            Some("/Users/nico/Code/project".to_string())
+        );
+        assert_eq!(sessions[1].name, "potato.2");
+        assert!(!sessions[1].is_attached());
     }
 
     #[test]

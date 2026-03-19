@@ -18,7 +18,7 @@ pub fn discover_sessions(
 
     for session in all {
         // Try to extract gmx session name: everything before the last ".N" suffix
-        let group_name = extract_session_name(&session.name);
+        let group_name = extract_gmx_session_name(&session.name);
         groups.entry(group_name).or_default().push(session);
     }
 
@@ -36,7 +36,7 @@ pub fn discover_sessions(
 /// "my-project.1" -> "my-project"
 /// "my-project.2" -> "my-project"
 /// "my-project" -> "my-project"
-fn extract_session_name(zmx_name: &str) -> String {
+pub fn extract_gmx_session_name(zmx_name: &str) -> String {
     // If the name ends with ".N" where N is a number, strip it
     if let Some(dot_pos) = zmx_name.rfind('.') {
         let suffix = &zmx_name[dot_pos + 1..];
@@ -83,30 +83,30 @@ mod tests {
 
     #[test]
     fn test_extract_session_name_numbered() {
-        assert_eq!(extract_session_name("my-project.1"), "my-project");
-        assert_eq!(extract_session_name("my-project.2"), "my-project");
-        assert_eq!(extract_session_name("my-project.10"), "my-project");
-        assert_eq!(extract_session_name("my-project.99"), "my-project");
+        assert_eq!(extract_gmx_session_name("my-project.1"), "my-project");
+        assert_eq!(extract_gmx_session_name("my-project.2"), "my-project");
+        assert_eq!(extract_gmx_session_name("my-project.10"), "my-project");
+        assert_eq!(extract_gmx_session_name("my-project.99"), "my-project");
     }
 
     #[test]
     fn test_extract_session_name_no_number() {
-        assert_eq!(extract_session_name("my-project"), "my-project");
-        assert_eq!(extract_session_name("foo.bar"), "foo.bar");
-        assert_eq!(extract_session_name("simple"), "simple");
+        assert_eq!(extract_gmx_session_name("my-project"), "my-project");
+        assert_eq!(extract_gmx_session_name("foo.bar"), "foo.bar");
+        assert_eq!(extract_gmx_session_name("simple"), "simple");
     }
 
     #[test]
     fn test_extract_session_name_nested() {
-        assert_eq!(extract_session_name("foo.bar.1"), "foo.bar");
-        assert_eq!(extract_session_name("a.b.c.3"), "a.b.c");
+        assert_eq!(extract_gmx_session_name("foo.bar.1"), "foo.bar");
+        assert_eq!(extract_gmx_session_name("a.b.c.3"), "a.b.c");
     }
 
     #[test]
     fn test_extract_session_name_non_numeric_suffix() {
         // ".abc" is not a number, so the whole thing is the session name
-        assert_eq!(extract_session_name("my-project.abc"), "my-project.abc");
-        assert_eq!(extract_session_name("foo.bar.baz"), "foo.bar.baz");
+        assert_eq!(extract_gmx_session_name("my-project.abc"), "my-project.abc");
+        assert_eq!(extract_gmx_session_name("foo.bar.baz"), "foo.bar.baz");
     }
 
     #[test]
@@ -173,7 +173,7 @@ mod tests {
         let mut groups: std::collections::HashMap<String, Vec<&str>> =
             std::collections::HashMap::new();
         for name in &zmx_names {
-            let group = extract_session_name(name);
+            let group = extract_gmx_session_name(name);
             groups.entry(group).or_default().push(name);
         }
 
