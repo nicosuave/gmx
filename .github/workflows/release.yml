@@ -70,11 +70,8 @@ jobs:
   update-homebrew:
     needs: release
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        formula: [gmx, ghostreelite]
     steps:
-      - name: Trigger homebrew-tap update for ${{ matrix.formula }}
+      - name: Update gmx formula
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           VERSION="${VERSION#v}"
@@ -82,4 +79,15 @@ jobs:
             -H "Authorization: token ${{ secrets.HOMEBREW_TAP_TOKEN }}" \
             -H "Accept: application/vnd.github.v3+json" \
             https://api.github.com/repos/nicosuave/homebrew-tap/dispatches \
-            -d "{\"event_type\":\"update-formula\",\"client_payload\":{\"formula\":\"${{ matrix.formula }}\",\"version\":\"${VERSION}\",\"repo\":\"nicosuave/gmx\"}}"
+            -d "{\"event_type\":\"update-formula\",\"client_payload\":{\"formula\":\"gmx\",\"version\":\"${VERSION}\",\"repo\":\"nicosuave/gmx\"}}"
+      - name: Wait for gmx update to complete
+        run: sleep 30
+      - name: Update ghostreelite formula
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${VERSION#v}"
+          curl -X POST \
+            -H "Authorization: token ${{ secrets.HOMEBREW_TAP_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/nicosuave/homebrew-tap/dispatches \
+            -d "{\"event_type\":\"update-formula\",\"client_payload\":{\"formula\":\"ghostreelite\",\"version\":\"${VERSION}\",\"repo\":\"nicosuave/gmx\"}}"
