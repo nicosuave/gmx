@@ -84,5 +84,3 @@ Sessions persist on the remote via zmx. Close the tab, reattach later, the remot
 ## How it works
 
 gmx uses Ghostty's AppleScript API to create tabs and splits with explicit surface configurations (environment variables, working directory). Each pane runs `zmx attach <session>` for persistence. Sessions are named `<name>.1`, `<name>.2`, etc.
-
-No shell wrapper. No Ghostty fork. Stock Ghostty + zmx.
