@@ -10,6 +10,8 @@ It aims to be vaguely tmux compatible but does not aim to be 100% tmux compatibl
 
 ```
 brew install nicosuave/tap/gmx
+gmx completions install
+gmx keybinds install
 ```
 
 ## Usage
@@ -20,14 +22,16 @@ gmx - Ghostty Multiplexer with zmx session persistence
 Usage: gmx <command> [args]
 
 Commands:
-  [n]ew <name> [--tab] [--remote R] [--dir D]   Create a new session
+  [n]ew [name] [--tab] [--remote R] [--dir D]   Create a new session (name defaults to cwd)
   [a]ttach <name> [--tab]                       Reattach to a session
-  [k]ill <name>                                 Kill a session and its zmx sessions
+  [d]etach                                      Detach from current session (ctrl+\ also works)
+  [k]ill [name]                                 Kill a session (defaults to current)
   [l]s                                          List sessions
   [s]plit [right|down]                           Add a split to the current session
   [r]ename <old> <new>                           Rename a session
   [c]onfig remote <name> <host>                  Configure a remote host
   key[b]inds install|uninstall|show              Manage Ghostty keybindings
+  completions install|uninstall|show <shell>     Shell tab completions
 
 By default, new and attach work in the current terminal.
 Use --tab to open in a new Ghostty tab instead.
