@@ -13,7 +13,7 @@ use ghostty_lib::zmx;
 #[command(
     name = "gmx",
     about = "gmx - Ghostty Multiplexer with zmx session persistence",
-    override_help = "gmx - Ghostty Multiplexer with zmx session persistence\n\nUsage: gmx <command> [args]\n\nCommands:\n  [n]ew [name] [--tab] [--remote R] [--dir D]   Create a new session (name defaults to cwd)\n  [a]ttach <name> [--tab]                       Reattach to a session\n  [d]etach                                      Detach from current session (ctrl+\\ also works)\n  [k]ill [name]                                 Kill a session (defaults to current)\n  [l]s                                          List sessions\n  [s]plit [right|down]                           Add a split to the current session\n  [r]ename <old> <new>                           Rename a session\n  [c]onfig remote <name> <host>                  Configure a remote host\n  key[b]inds install|uninstall|show              Manage Ghostty keybindings\n  completions <bash|zsh|fish>                    Output shell completion scripts\n\nBy default, new and attach work in the current terminal.\nUse --tab to open in a new Ghostty tab instead."
+    override_help = "gmx - Ghostty Multiplexer with zmx session persistence\n\nUsage: gmx <command> [args]\n\nCommands:\n  [n]ew [name] [--tab] [--remote R] [--dir D]   Create a new session (name defaults to cwd)\n  [a]ttach <name> [--tab]                       Reattach to a session\n  [d]etach                                      Detach from current session (ctrl+\\ also works)\n  [k]ill [name]                                 Kill a session (defaults to current)\n  [l]s                                          List sessions\n  [s]plit [right|down]                           Add a split to the current session\n  [r]ename <old> <new>                           Rename a session\n  [c]onfig remote <name> <host>                  Configure a remote host\n  key[b]inds install|uninstall|show              Manage Ghostty keybindings\n  completions install|uninstall|show <shell>      Shell tab completions\n\nBy default, new and attach work in the current terminal.\nUse --tab to open in a new Ghostty tab instead."
 )]
 struct Cli {
     #[command(subcommand)]
@@ -89,10 +89,10 @@ enum Commands {
         #[command(subcommand)]
         command: KeybindsCommands,
     },
-    /// Output shell completion scripts
+    /// Shell completion scripts
     Completions {
-        /// Shell: bash, zsh, or fish
-        shell: String,
+        #[command(subcommand)]
+        command: CompletionsCommands,
     },
 }
 
@@ -133,6 +133,19 @@ enum ConfigCommands {
     Show,
 }
 
+#[derive(Subcommand)]
+enum CompletionsCommands {
+    /// Install completions into your shell rc file
+    Install,
+    /// Remove completions from your shell rc file
+    Uninstall,
+    /// Print completion script for a shell (bash, zsh, or fish)
+    Show {
+        /// Shell
+        shell: String,
+    },
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
@@ -150,7 +163,7 @@ fn main() -> Result<()> {
         Some(Commands::Rename { old, new }) => cmd_rename(&old, &new),
         Some(Commands::Config { command }) => cmd_config(command),
         Some(Commands::Keybinds { command }) => cmd_keybinds(command),
-        Some(Commands::Completions { shell }) => cmd_completions(&shell),
+        Some(Commands::Completions { command }) => cmd_completions(command),
         None => {
             // Show the same help as --help
             Cli::parse_from(["gmx", "--help"]);
@@ -711,14 +724,106 @@ fn cmd_keybinds(command: KeybindsCommands) -> Result<()> {
 
 // --- Completions ---
 
-fn cmd_completions(shell: &str) -> Result<()> {
-    match shell {
-        "bash" => print!("{}", BASH_COMPLETIONS),
-        "zsh" => print!("{}", ZSH_COMPLETIONS),
-        "fish" => print!("{}", FISH_COMPLETIONS),
-        _ => bail!("unknown shell '{}'. Use: bash, zsh, or fish", shell),
+const GMX_COMPLETIONS_MARKER: &str = "# gmx completions";
+const GMX_COMPLETIONS_END: &str = "# end gmx completions";
+
+fn detect_shell() -> Result<(&'static str, std::path::PathBuf)> {
+    let shell = std::env::var("SHELL").unwrap_or_default();
+    let home = dirs::home_dir().context("no home directory")?;
+    if shell.contains("fish") {
+        Ok(("fish", home.join(".config/fish/completions/gmx.fish")))
+    } else if shell.contains("bash") {
+        Ok(("bash", home.join(".bashrc")))
+    } else {
+        Ok(("zsh", home.join(".zshrc")))
     }
-    Ok(())
+}
+
+fn cmd_completions(command: CompletionsCommands) -> Result<()> {
+    match command {
+        CompletionsCommands::Show { shell } => {
+            match shell.as_str() {
+                "bash" => print!("{}", BASH_COMPLETIONS),
+                "zsh" => print!("{}", ZSH_COMPLETIONS),
+                "fish" => print!("{}", FISH_COMPLETIONS),
+                _ => bail!("unknown shell '{}'. Use: bash, zsh, or fish", shell),
+            }
+            Ok(())
+        }
+        CompletionsCommands::Install => {
+            let (shell, rc_path) = detect_shell()?;
+
+            if shell == "fish" {
+                // Fish uses a separate file, not eval in rc
+                if let Some(parent) = rc_path.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::write(&rc_path, FISH_COMPLETIONS)?;
+                eprintln!("Installed fish completions to {}", rc_path.display());
+            } else {
+                let content = if rc_path.exists() {
+                    std::fs::read_to_string(&rc_path)?
+                } else {
+                    String::new()
+                };
+
+                if content.contains(GMX_COMPLETIONS_MARKER) {
+                    eprintln!("gmx completions already installed in {}", rc_path.display());
+                    return Ok(());
+                }
+
+                let block = format!(
+                    "\n{}\neval \"$(gmx completions show {})\"\n{}\n",
+                    GMX_COMPLETIONS_MARKER, shell, GMX_COMPLETIONS_END
+                );
+                std::fs::write(&rc_path, format!("{}{}", content, block))?;
+                eprintln!("Installed gmx completions in {}", rc_path.display());
+            }
+            eprintln!("Restart your shell or run: source {}", rc_path.display());
+            Ok(())
+        }
+        CompletionsCommands::Uninstall => {
+            let (shell, rc_path) = detect_shell()?;
+
+            if shell == "fish" {
+                if rc_path.exists() {
+                    std::fs::remove_file(&rc_path)?;
+                    eprintln!("Removed {}", rc_path.display());
+                } else {
+                    eprintln!("No fish completions found");
+                }
+            } else {
+                if !rc_path.exists() {
+                    eprintln!("No rc file found at {}", rc_path.display());
+                    return Ok(());
+                }
+                let content = std::fs::read_to_string(&rc_path)?;
+                if !content.contains(GMX_COMPLETIONS_MARKER) {
+                    eprintln!("No gmx completions found in {}", rc_path.display());
+                    return Ok(());
+                }
+                let mut result = String::new();
+                let mut skipping = false;
+                for line in content.lines() {
+                    if line.trim() == GMX_COMPLETIONS_MARKER {
+                        skipping = true;
+                        continue;
+                    }
+                    if line.trim() == GMX_COMPLETIONS_END {
+                        skipping = false;
+                        continue;
+                    }
+                    if !skipping {
+                        result.push_str(line);
+                        result.push('\n');
+                    }
+                }
+                std::fs::write(&rc_path, result)?;
+                eprintln!("Removed gmx completions from {}", rc_path.display());
+            }
+            Ok(())
+        }
+    }
 }
 
 const BASH_COMPLETIONS: &str = r#"_gmx_completions() {
