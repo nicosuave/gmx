@@ -11,12 +11,12 @@ use crossterm::event::{KeyCode, KeyModifiers};
 use skim::prelude::*;
 use std::io::Cursor;
 
+use crate::worktree::Worktree;
 use config::{Config, RemoteConfig, RepoConfig};
 use discovery::DiscoveredRepo;
 use display::{WorktreeDisplay, print_worktree_table};
 use ghostty_lib::ghostty;
 use ghostty_lib::state::TerminalState;
-use crate::worktree::Worktree;
 use ghostty_lib::zmx::{self, ZmxSession};
 
 #[derive(Parser)]
