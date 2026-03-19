@@ -35,11 +35,16 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           arch="${{ matrix.arch }}"
 
-          for bin in gmx ghostreelite; do
-            artifact="${bin}-${version}-macos-${arch}.tar.gz"
-            tar -C target/${{ matrix.target }}/release -czf "${artifact}" "${bin}"
-            shasum -a 256 "${artifact}" > "${artifact}.sha256"
-          done
+          # gmx standalone
+          artifact="gmx-${version}-macos-${arch}.tar.gz"
+          tar -C target/${{ matrix.target }}/release -czf "${artifact}" gmx
+          shasum -a 256 "${artifact}" > "${artifact}.sha256"
+
+          # ghostreelite + gtl alias (symlink)
+          ln -sf ghostreelite target/${{ matrix.target }}/release/gtl
+          artifact="ghostreelite-${version}-macos-${arch}.tar.gz"
+          tar -C target/${{ matrix.target }}/release -czf "${artifact}" ghostreelite gtl
+          shasum -a 256 "${artifact}" > "${artifact}.sha256"
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
