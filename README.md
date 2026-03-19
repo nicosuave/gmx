@@ -7,7 +7,7 @@ It aims to be vaguely tmux compatible but does not aim to be 100% tmux compatibl
 ## Install
 
 ```
-brew tap nicosuave/tap/gmx
+brew install nicosuave/tap/gmx
 ```
 
 ## Usage
