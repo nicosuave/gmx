@@ -13,7 +13,7 @@ use ghostty_lib::zmx;
 #[command(
     name = "gmx",
     about = "gmx - Ghostty Multiplexer with zmx session persistence",
-    override_help = "gmx - Ghostty Multiplexer with zmx session persistence\n\nUsage: gmx <command> [args]\n\nCommands:\n  [n]ew [name] [--tab] [--remote R] [--dir D]   Create a new session (name defaults to cwd)\n  [a]ttach <name> [--tab]                       Reattach to a session\n  [k]ill [name]                                 Kill a session (defaults to current)\n  [l]s                                          List sessions\n  [s]plit [right|down]                           Add a split to the current session\n  [r]ename <old> <new>                           Rename a session\n  [c]onfig remote <name> <host>                  Configure a remote host\n  key[b]inds install|uninstall|show              Manage Ghostty keybindings\n\nBy default, new and attach work in the current terminal.\nUse --tab to open in a new Ghostty tab instead."
+    override_help = "gmx - Ghostty Multiplexer with zmx session persistence\n\nUsage: gmx <command> [args]\n\nCommands:\n  [n]ew [name] [--tab] [--remote R] [--dir D]   Create a new session (name defaults to cwd)\n  [a]ttach <name> [--tab]                       Reattach to a session\n  [d]etach                                      Detach from current session (ctrl+\\ also works)\n  [k]ill [name]                                 Kill a session (defaults to current)\n  [l]s                                          List sessions\n  [s]plit [right|down]                           Add a split to the current session\n  [r]ename <old> <new>                           Rename a session\n  [c]onfig remote <name> <host>                  Configure a remote host\n  key[b]inds install|uninstall|show              Manage Ghostty keybindings\n\nBy default, new and attach work in the current terminal.\nUse --tab to open in a new Ghostty tab instead."
 )]
 struct Cli {
     #[command(subcommand)]
@@ -52,6 +52,9 @@ enum Commands {
         /// Session name (kills current session if omitted)
         name: Option<String>,
     },
+    /// Detach from current session (ctrl+\ also works)
+    #[command(alias = "d")]
+    Detach,
     /// List sessions
     #[command(alias = "l")]
     Ls,
@@ -132,6 +135,7 @@ fn main() -> Result<()> {
         }) => cmd_new(name.as_deref(), remote.as_deref(), dir.as_deref(), tab),
         Some(Commands::Attach { name, tab }) => cmd_attach(&name, tab),
         Some(Commands::Kill { name }) => cmd_kill(name.as_deref()),
+        Some(Commands::Detach) => cmd_detach(),
         Some(Commands::Ls) => cmd_ls(),
         Some(Commands::Split { direction }) => cmd_split(&direction),
         Some(Commands::Rename { old, new }) => cmd_rename(&old, &new),
@@ -382,6 +386,12 @@ fn cmd_kill(name: Option<&str>) -> Result<()> {
 
     eprintln!("Killed '{}' ({} zmx session(s))", name, sessions.len());
     Ok(())
+}
+
+fn cmd_detach() -> Result<()> {
+    use std::os::unix::process::CommandExt;
+    let err = std::process::Command::new("zmx").args(["detach"]).exec();
+    Err(err).context("failed to exec zmx detach")
 }
 
 fn cmd_ls() -> Result<()> {
