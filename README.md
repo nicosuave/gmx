@@ -4,6 +4,8 @@ gmx is a terminal multiplexer for ghostty, built on zmx and Ghostty's recently e
 
 It aims to be vaguely tmux compatible but does not aim to be 100% tmux compatible.
 
+![gmx usage](screenshot.png)
+
 ## Install
 
 ```

@@ -93,6 +93,7 @@ pub fn attach_command(session_name: &str, worktree_path: &str) -> Vec<String> {
 /// Ensure a zmx session exists by creating it with `zmx run` (daemonized).
 /// If the session already exists, this is a no-op.
 /// The session persists independently of any client.
+/// Uses zmx's default shell (no command arg) so it gets a proper PTY.
 pub fn ensure_session(
     session_name: &str,
     worktree_path: &str,
@@ -102,16 +103,11 @@ pub fn ensure_session(
     if find_session(session_name, remote)?.is_some() {
         return Ok(());
     }
-    // Create session with `zmx run` (starts daemon, doesn't attach)
+    // Create session with `zmx run` using default shell.
+    // cd to the working directory first via sh -c wrapper.
+    let cd_and_shell = format!("cd '{}' && exec ${{SHELL:-sh}}", worktree_path);
     run_cmd(
-        &[
-            "zmx",
-            "run",
-            session_name,
-            "sh",
-            "-c",
-            &format!("cd '{}' && exec ${{SHELL:-sh}}", worktree_path),
-        ],
+        &["zmx", "run", session_name, "sh", "-c", &cd_and_shell],
         remote,
     )
     .with_context(|| format!("failed to create zmx session {}", session_name))?;
@@ -125,7 +121,12 @@ pub fn ensure_session(
 pub fn exec_attach(session_name: &str, worktree_path: &str) -> Result<()> {
     use std::os::unix::process::CommandExt;
     let args = attach_command(session_name, worktree_path);
-    let err = std::process::Command::new(&args[0]).args(&args[1..]).exec();
+    // Clear ZMX_SESSION so zmx doesn't think we're already in a session.
+    // This allows `gmx new` to work from inside an existing zmx session.
+    let err = std::process::Command::new(&args[0])
+        .args(&args[1..])
+        .env_remove("ZMX_SESSION")
+        .exec();
     // exec only returns on error
     Err(err).context("failed to exec zmx attach")
 }
@@ -138,6 +139,7 @@ pub fn exec_attach_only(session_name: &str) -> Result<()> {
     use std::os::unix::process::CommandExt;
     let err = std::process::Command::new("zmx")
         .args(["attach", session_name])
+        .env_remove("ZMX_SESSION")
         .exec();
     Err(err).context("failed to exec zmx attach")
 }
