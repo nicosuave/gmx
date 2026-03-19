@@ -1,8 +1,8 @@
 use anyhow::{Context, Result};
 use serde::Deserialize;
 
-use crate::cmd::run_cmd;
-use crate::remote::RemoteConfig;
+use ghostty_lib::cmd::run_cmd;
+use ghostty_lib::remote::RemoteConfig;
 
 #[derive(Debug, Clone, Deserialize, Default)]
 #[allow(dead_code)]

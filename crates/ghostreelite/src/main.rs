@@ -2,6 +2,7 @@ mod config;
 mod discovery;
 mod display;
 mod logic;
+mod worktree;
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
@@ -15,7 +16,7 @@ use discovery::DiscoveredRepo;
 use display::{WorktreeDisplay, print_worktree_table};
 use ghostty_lib::ghostty;
 use ghostty_lib::state::TerminalState;
-use ghostty_lib::worktree::{self, Worktree};
+use crate::worktree::Worktree;
 use ghostty_lib::zmx::{self, ZmxSession};
 
 #[derive(Parser)]

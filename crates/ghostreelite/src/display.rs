@@ -1,6 +1,6 @@
 use colored::Colorize;
 
-use ghostty_lib::worktree::Worktree;
+use crate::worktree::Worktree;
 use ghostty_lib::zmx::ZmxSession;
 
 /// Combined view of a worktree and its optional zmx session.
