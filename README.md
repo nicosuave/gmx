@@ -10,8 +10,6 @@ It aims to be vaguely tmux compatible but does not aim to be 100% tmux compatibl
 brew tap nicosuave/tap/gmx
 ```
 
-This installs zmx as a dependency.
-
 ## Usage
 
 ```
