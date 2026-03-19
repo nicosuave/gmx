@@ -13,7 +13,7 @@ use ghostty_lib::zmx;
 #[command(
     name = "gmx",
     about = "gmx - Ghostty Multiplexer with zmx session persistence",
-    override_help = "gmx - Ghostty Multiplexer with zmx session persistence\n\nUsage: gmx <command> [args]\n\nCommands:\n  [n]ew <name> [--tab] [--remote R] [--dir D]   Create a new session\n  [a]ttach <name> [--tab]                       Reattach to a session\n  [k]ill <name>                                 Kill a session and its zmx sessions\n  [l]s                                          List sessions\n  [s]plit [right|down]                           Add a split to the current session\n  [r]ename <old> <new>                           Rename a session\n  [c]onfig remote <name> <host>                  Configure a remote host\n  key[b]inds install|uninstall|show              Manage Ghostty keybindings\n\nBy default, new and attach work in the current terminal.\nUse --tab to open in a new Ghostty tab instead."
+    override_help = "gmx - Ghostty Multiplexer with zmx session persistence\n\nUsage: gmx <command> [args]\n\nCommands:\n  [n]ew [name] [--tab] [--remote R] [--dir D]   Create a new session (name defaults to cwd)\n  [a]ttach <name> [--tab]                       Reattach to a session\n  [k]ill [name]                                 Kill a session (defaults to current)\n  [l]s                                          List sessions\n  [s]plit [right|down]                           Add a split to the current session\n  [r]ename <old> <new>                           Rename a session\n  [c]onfig remote <name> <host>                  Configure a remote host\n  key[b]inds install|uninstall|show              Manage Ghostty keybindings\n\nBy default, new and attach work in the current terminal.\nUse --tab to open in a new Ghostty tab instead."
 )]
 struct Cli {
     #[command(subcommand)]
@@ -25,8 +25,8 @@ enum Commands {
     /// Create a new session (attaches zmx in current terminal by default)
     #[command(alias = "n")]
     New {
-        /// Session name
-        name: String,
+        /// Session name (auto-generated if omitted)
+        name: Option<String>,
         /// Remote host (must be configured in gmx config)
         #[arg(long)]
         remote: Option<String>,
@@ -46,11 +46,11 @@ enum Commands {
         #[arg(long)]
         tab: bool,
     },
-    /// Kill a session and all its zmx sessions
+    /// Kill a session and all its zmx sessions (current session if no name given)
     #[command(alias = "k")]
     Kill {
-        /// Session name
-        name: String,
+        /// Session name (kills current session if omitted)
+        name: Option<String>,
     },
     /// List sessions
     #[command(alias = "l")]
@@ -129,9 +129,9 @@ fn main() -> Result<()> {
             remote,
             dir,
             tab,
-        }) => cmd_new(&name, remote.as_deref(), dir.as_deref(), tab),
+        }) => cmd_new(name.as_deref(), remote.as_deref(), dir.as_deref(), tab),
         Some(Commands::Attach { name, tab }) => cmd_attach(&name, tab),
-        Some(Commands::Kill { name }) => cmd_kill(&name),
+        Some(Commands::Kill { name }) => cmd_kill(name.as_deref()),
         Some(Commands::Ls) => cmd_ls(),
         Some(Commands::Split { direction }) => cmd_split(&direction),
         Some(Commands::Rename { old, new }) => cmd_rename(&old, &new),
@@ -160,9 +160,23 @@ fn resolve_remote(config: &GmxConfig, name: Option<&str>) -> Result<Option<Remot
     }
 }
 
-fn cmd_new(name: &str, remote_name: Option<&str>, dir: Option<&str>, tab: bool) -> Result<()> {
+fn auto_session_name() -> String {
+    // Use current directory name as session name, like tmux uses window names
+    std::env::current_dir()
+        .ok()
+        .and_then(|p| p.file_name().map(|f| f.to_string_lossy().to_string()))
+        .unwrap_or_else(|| "gmx".to_string())
+}
+
+fn cmd_new(name: Option<&str>, remote_name: Option<&str>, dir: Option<&str>, tab: bool) -> Result<()> {
     let config = GmxConfig::load()?;
     let remote = resolve_remote(&config, remote_name)?;
+
+    let name = match name {
+        Some(n) => n.to_string(),
+        None => auto_session_name(),
+    };
+    let name = &name;
 
     // Default working directory: current directory for local, or require --dir for remote
     let working_dir = match dir {
@@ -320,7 +334,16 @@ fn cmd_attach(name: &str, tab: bool) -> Result<()> {
     Ok(())
 }
 
-fn cmd_kill(name: &str) -> Result<()> {
+fn cmd_kill(name: Option<&str>) -> Result<()> {
+    // Default to current session if no name given
+    let env_session = std::env::var("GMX_SESSION").ok();
+    let name = match name {
+        Some(n) => n.to_string(),
+        None => env_session.context(
+            "no session name given and not inside a gmx session (GMX_SESSION not set)",
+        )?,
+    };
+    let name = &name;
     let config = GmxConfig::load()?;
     let registry = SessionRegistry::load()?;
 
@@ -543,9 +566,9 @@ fn generate_keybinds(prefix: Option<&str>) -> String {
 keybind = {pfx}=activate_key_table_once:gmx
 keybind = gmx/d=text:gmx split right\n
 keybind = gmx/e=text:gmx split down\n
-keybind = gmx/c=text:gmx new --tab
+keybind = gmx/c=text:gmx new --tab\n
 keybind = gmx/a=text:gmx attach
-keybind = gmx/x=text:gmx kill
+keybind = gmx/x=text:gmx kill\n
 keybind = gmx/s=text:gmx ls\n
 keybind = gmx/escape=deactivate_key_table
 {end}"#,
@@ -560,9 +583,9 @@ keybind = gmx/escape=deactivate_key_table
                 r#"{marker}
 keybind = ctrl+shift+d=text:gmx split right\n
 keybind = ctrl+shift+e=text:gmx split down\n
-keybind = ctrl+shift+t=text:gmx new --tab
+keybind = ctrl+shift+t=text:gmx new --tab\n
 keybind = ctrl+shift+a=text:gmx attach
-keybind = ctrl+shift+x=text:gmx kill
+keybind = ctrl+shift+x=text:gmx kill\n
 keybind = ctrl+shift+s=text:gmx ls\n
 {end}"#,
                 marker = GMX_KEYBINDS_MARKER,
