@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use serde::Deserialize;
 
 use crate::cmd::run_cmd;
-use crate::config::RemoteConfig;
+use crate::remote::RemoteConfig;
 
 #[derive(Debug, Clone, Deserialize, Default)]
 #[allow(dead_code)]
@@ -53,11 +53,8 @@ pub struct Worktree {
 
 /// List worktrees for a repo using `wt list --format=json`.
 pub fn list_worktrees(repo_path: &str, remote: Option<&RemoteConfig>) -> Result<Vec<Worktree>> {
-    let output = run_cmd(
-        &["wt", "-C", repo_path, "list", "--format=json"],
-        remote,
-    )
-    .with_context(|| format!("failed to list worktrees for {}", repo_path))?;
+    let output = run_cmd(&["wt", "-C", repo_path, "list", "--format=json"], remote)
+        .with_context(|| format!("failed to list worktrees for {}", repo_path))?;
 
     let worktrees: Vec<Worktree> = serde_json::from_str(&output)
         .with_context(|| format!("failed to parse wt output for {}", repo_path))?;
@@ -78,8 +75,7 @@ pub fn create_worktree(
         args.push(b);
     }
 
-    run_cmd(&args, remote)
-        .with_context(|| format!("failed to create worktree {}", branch))?;
+    run_cmd(&args, remote).with_context(|| format!("failed to create worktree {}", branch))?;
 
     Ok(())
 }
@@ -91,13 +87,20 @@ pub fn remove_worktree(
     force: bool,
     remote: Option<&RemoteConfig>,
 ) -> Result<()> {
-    let mut args = vec!["wt", "-C", repo_path, "remove", "--yes", "--foreground", branch];
+    let mut args = vec![
+        "wt",
+        "-C",
+        repo_path,
+        "remove",
+        "--yes",
+        "--foreground",
+        branch,
+    ];
     if force {
         args.push("--force");
     }
 
-    run_cmd(&args, remote)
-        .with_context(|| format!("failed to remove worktree {}", branch))?;
+    run_cmd(&args, remote).with_context(|| format!("failed to remove worktree {}", branch))?;
 
     Ok(())
 }
@@ -169,10 +172,10 @@ fn parse_batch_git_output(output: &str) -> std::collections::HashMap<String, Vec
                 ahead,
                 behind,
             );
-            if let Some(prev_repo) = current_repo.take() {
-                if !worktrees.is_empty() {
-                    result.insert(prev_repo, worktrees.clone());
-                }
+            if let Some(prev_repo) = current_repo.take()
+                && !worktrees.is_empty()
+            {
+                result.insert(prev_repo, worktrees.clone());
             }
 
             current_repo = Some(repo_path.trim_end_matches('/').to_string());
@@ -228,10 +231,10 @@ fn parse_batch_git_output(output: &str) -> std::collections::HashMap<String, Vec
                     worktrees[0].remote = Some(WorktreeRemote { ahead, behind });
                 }
             }
-            if let Some(prev_repo) = current_repo.take() {
-                if !worktrees.is_empty() {
-                    result.insert(prev_repo, worktrees.clone());
-                }
+            if let Some(prev_repo) = current_repo.take()
+                && !worktrees.is_empty()
+            {
+                result.insert(prev_repo, worktrees.clone());
             }
             worktrees.clear();
             continue;
@@ -297,6 +300,7 @@ fn parse_batch_git_output(output: &str) -> std::collections::HashMap<String, Vec
     result
 }
 
+#[allow(clippy::too_many_arguments)]
 fn flush_worktree(
     worktrees: &mut Vec<Worktree>,
     current_path: &mut Option<String>,
@@ -343,4 +347,186 @@ pub fn find_worktree(
 ) -> Result<Option<Worktree>> {
     let worktrees = list_worktrees(repo_path, remote)?;
     Ok(worktrees.into_iter().find(|w| w.branch == branch))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_batch_single_repo_single_worktree() {
+        let output = "\
+___REPO___/home/user/Code/myrepo
+worktree /home/user/Code/myrepo
+HEAD abc123
+branch refs/heads/main
+
+___STATUS___
+___REMOTE___
+3\t1
+___ENDREPO___
+";
+        let result = parse_batch_git_output(output);
+        assert_eq!(result.len(), 1);
+        let wts = &result["/home/user/Code/myrepo"];
+        assert_eq!(wts.len(), 1);
+        assert_eq!(wts[0].branch, "main");
+        assert_eq!(wts[0].path, "/home/user/Code/myrepo");
+        assert!(wts[0].is_main);
+        // Remote ahead/behind applied to first worktree
+        let remote = wts[0].remote.as_ref().unwrap();
+        assert_eq!(remote.ahead, 3);
+        assert_eq!(remote.behind, 1);
+    }
+
+    #[test]
+    fn test_parse_batch_multiple_worktrees() {
+        let output = "\
+___REPO___/home/user/Code/myrepo
+worktree /home/user/Code/myrepo
+HEAD abc123
+branch refs/heads/main
+
+worktree /home/user/Code/myrepo-feature
+HEAD def456
+branch refs/heads/feature
+
+___STATUS___
+ M src/main.rs
+?? untracked.txt
+___REMOTE___
+___ENDREPO___
+";
+        let result = parse_batch_git_output(output);
+        let wts = &result["/home/user/Code/myrepo"];
+        assert_eq!(wts.len(), 2);
+
+        // First worktree is main
+        assert_eq!(wts[0].branch, "main");
+        assert!(wts[0].is_main);
+
+        // Second worktree is not main
+        assert_eq!(wts[1].branch, "feature");
+        assert!(!wts[1].is_main);
+
+        // Status applied to first worktree
+        // " M" = modified in working tree (space in index, M in worktree)
+        let wt = wts[0].working_tree.as_ref().unwrap();
+        assert!(wt.modified);
+        assert!(wt.untracked);
+        assert!(!wt.staged);
+    }
+
+    #[test]
+    fn test_parse_batch_status_parsing() {
+        let output = "\
+___REPO___/repo
+worktree /repo
+HEAD abc
+branch refs/heads/main
+
+___STATUS___
+A  new_file.rs
+ M modified.rs
+?? untracked.txt
+___REMOTE___
+___ENDREPO___
+";
+        let result = parse_batch_git_output(output);
+        let wts = &result["/repo"];
+        let wt = wts[0].working_tree.as_ref().unwrap();
+        assert!(wt.staged); // A in index column
+        assert!(wt.modified); // M in working tree column
+        assert!(wt.untracked); // ??
+    }
+
+    #[test]
+    fn test_parse_batch_multiple_repos() {
+        let output = "\
+___REPO___/repo1
+worktree /repo1
+HEAD abc
+branch refs/heads/main
+
+___STATUS___
+___REMOTE___
+___ENDREPO___
+___REPO___/repo2
+worktree /repo2
+HEAD def
+branch refs/heads/develop
+
+___STATUS___
+___REMOTE___
+___ENDREPO___
+";
+        let result = parse_batch_git_output(output);
+        assert_eq!(result.len(), 2);
+        assert!(result.contains_key("/repo1"));
+        assert!(result.contains_key("/repo2"));
+        assert_eq!(result["/repo1"][0].branch, "main");
+        assert_eq!(result["/repo2"][0].branch, "develop");
+    }
+
+    #[test]
+    fn test_parse_batch_trailing_slash_stripped() {
+        let output = "\
+___REPO___/repo/
+worktree /repo
+HEAD abc
+branch refs/heads/main
+
+___STATUS___
+___REMOTE___
+___ENDREPO___
+";
+        let result = parse_batch_git_output(output);
+        assert!(result.contains_key("/repo"));
+    }
+
+    #[test]
+    fn test_parse_batch_empty_input() {
+        let result = parse_batch_git_output("");
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_parse_batch_no_remote_tracking() {
+        let output = "\
+___REPO___/repo
+worktree /repo
+HEAD abc
+branch refs/heads/main
+
+___STATUS___
+___REMOTE___
+___ENDREPO___
+";
+        let result = parse_batch_git_output(output);
+        let wts = &result["/repo"];
+        assert!(wts[0].remote.is_none());
+    }
+
+    #[test]
+    fn test_parse_batch_clean_status() {
+        let output = "\
+___REPO___/repo
+worktree /repo
+HEAD abc
+branch refs/heads/main
+
+___STATUS___
+___REMOTE___
+0\t0
+___ENDREPO___
+";
+        let result = parse_batch_git_output(output);
+        let wts = &result["/repo"];
+        let wt = wts[0].working_tree.as_ref().unwrap();
+        assert!(!wt.staged);
+        assert!(!wt.modified);
+        assert!(!wt.untracked);
+        // 0/0 ahead/behind means no remote tracking info stored
+        assert!(wts[0].remote.is_none());
+    }
 }

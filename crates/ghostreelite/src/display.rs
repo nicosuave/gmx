@@ -1,7 +1,7 @@
 use colored::Colorize;
 
-use crate::worktree::Worktree;
-use crate::zmx::ZmxSession;
+use ghostty_lib::worktree::Worktree;
+use ghostty_lib::zmx::ZmxSession;
 
 /// Combined view of a worktree and its optional zmx session.
 pub struct WorktreeDisplay<'a> {
@@ -85,17 +85,22 @@ impl<'a> WorktreeDisplay<'a> {
             format!(" [{}]", status)
         };
 
-        format!("{} {}: {}/{}{}", indicator, self.env_name, self.repo_name, self.worktree.branch, status_part)
+        format!(
+            "{} {}: {}/{}{}",
+            indicator, self.env_name, self.repo_name, self.worktree.branch, status_part
+        )
     }
 
     /// Sort key: (has_session descending, commit_timestamp descending)
     pub fn sort_key(&self) -> (u8, u64) {
         let session_rank = match &self.session {
             Some(s) if s.is_attached() => 0, // attached first
-            Some(_) => 1,                     // detached second
-            None => 2,                        // no session last
+            Some(_) => 1,                    // detached second
+            None => 2,                       // no session last
         };
-        let timestamp = self.worktree.commit
+        let timestamp = self
+            .worktree
+            .commit
             .as_ref()
             .map(|c| c.timestamp)
             .unwrap_or(0);
@@ -117,9 +122,15 @@ impl<'a> WorktreeDisplay<'a> {
 
         if let Some(wt) = &self.worktree.working_tree {
             let mut status = Vec::new();
-            if wt.staged { status.push("staged"); }
-            if wt.modified { status.push("modified"); }
-            if wt.untracked { status.push("untracked"); }
+            if wt.staged {
+                status.push("staged");
+            }
+            if wt.modified {
+                status.push("modified");
+            }
+            if wt.untracked {
+                status.push("untracked");
+            }
             if !status.is_empty() {
                 parts.push(status.join(","));
             }
@@ -139,7 +150,10 @@ impl<'a> WorktreeDisplay<'a> {
 /// Print the full worktree table.
 pub fn print_worktree_table(entries: &[WorktreeDisplay]) {
     if entries.is_empty() {
-        println!("{}", "No worktrees found. Add a repo with: ghostreelite repo add <path>".dimmed());
+        println!(
+            "{}",
+            "No worktrees found. Add a repo with: ghostreelite repo add <path>".dimmed()
+        );
         return;
     }
 

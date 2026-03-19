@@ -3,8 +3,9 @@ use std::fs;
 
 use anyhow::Result;
 
-use crate::cmd::run_cmd;
-use crate::config::{Config, RemoteConfig, RepoConfig};
+use crate::config::{Config, RepoConfig};
+use ghostty_lib::cmd::run_cmd;
+use ghostty_lib::remote::RemoteConfig;
 
 #[derive(Debug, Clone)]
 pub struct DiscoveredRepo {
@@ -43,10 +44,7 @@ pub fn discover_repos(config: &Config) -> Result<Vec<DiscoveredRepo>> {
             let key = (path.clone(), "local".to_string());
             if seen.insert(key) {
                 repos.push(DiscoveredRepo {
-                    config: RepoConfig {
-                        path,
-                        remote: None,
-                    },
+                    config: RepoConfig { path, remote: None },
                     env_name: "local".to_string(),
                     remote: None,
                 });
@@ -118,10 +116,10 @@ fn scan_remote_dir(dir: &str, remote: &RemoteConfig) -> Result<Vec<String>> {
 }
 
 fn expand_tilde(path: &str) -> String {
-    if path.starts_with("~/") {
-        if let Some(home) = dirs::home_dir() {
-            return format!("{}{}", home.display(), &path[1..]);
-        }
+    if path.starts_with("~/")
+        && let Some(home) = dirs::home_dir()
+    {
+        return format!("{}{}", home.display(), &path[1..]);
     }
     path.to_string()
 }

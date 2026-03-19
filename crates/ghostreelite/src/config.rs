@@ -3,35 +3,8 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RemoteConfig {
-    pub host: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub user: Option<String>,
-    /// Directories on the remote to scan for git repos
-    #[serde(default)]
-    pub scan_dirs: Vec<String>,
-    /// "ssh" (default) or "mosh" for interactive sessions
-    #[serde(default = "default_transport")]
-    pub transport: String,
-}
-
-fn default_transport() -> String {
-    "ssh".to_string()
-}
-
-impl RemoteConfig {
-    pub fn ssh_target(&self) -> String {
-        match &self.user {
-            Some(user) => format!("{}@{}", user, self.host),
-            None => self.host.clone(),
-        }
-    }
-
-    pub fn use_mosh(&self) -> bool {
-        self.transport == "mosh"
-    }
-}
+// Re-export RemoteConfig from shared lib for convenience
+pub use ghostty_lib::remote::RemoteConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RepoConfig {
@@ -61,7 +34,6 @@ pub struct Config {
 fn default_split_direction() -> String {
     "right".to_string()
 }
-
 
 impl Config {
     pub fn config_dir() -> Result<PathBuf> {
@@ -100,5 +72,4 @@ impl Config {
     pub fn effective_remote<'a>(&'a self, repo: &'a RepoConfig) -> Option<&'a RemoteConfig> {
         repo.remote.as_ref().or(self.remote.as_ref())
     }
-
 }

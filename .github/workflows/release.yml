@@ -1,0 +1,80 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-apple-darwin
+            arch: x86_64
+          - target: aarch64-apple-darwin
+            arch: arm64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+      - name: Package
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          arch="${{ matrix.arch }}"
+
+          for bin in gmx ghostreelite; do
+            artifact="${bin}-${version}-macos-${arch}.tar.gz"
+            tar -C target/${{ matrix.target }}/release -czf "${artifact}" "${bin}"
+            shasum -a 256 "${artifact}" > "${artifact}.sha256"
+          done
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries-macos-${{ matrix.arch }}
+          path: |
+            *.tar.gz
+            *.sha256
+
+  release:
+    needs: [build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+
+  update-homebrew:
+    needs: release
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        formula: [gmx, ghostreelite]
+    steps:
+      - name: Trigger homebrew-tap update for ${{ matrix.formula }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${VERSION#v}"
+          curl -X POST \
+            -H "Authorization: token ${{ secrets.HOMEBREW_TAP_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/nicosuave/homebrew-tap/dispatches \
+            -d "{\"event_type\":\"update-formula\",\"client_payload\":{\"formula\":\"${{ matrix.formula }}\",\"version\":\"${VERSION}\",\"repo\":\"nicosuave/gmx\"}}"

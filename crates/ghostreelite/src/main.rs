@@ -1,13 +1,9 @@
-mod cmd;
 mod config;
 mod discovery;
 mod display;
-mod ghostty;
-mod state;
-mod worktree;
-mod zmx;
+mod logic;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use colored::Colorize;
 use crossterm::event::{KeyCode, KeyModifiers};
@@ -16,13 +12,17 @@ use std::io::Cursor;
 
 use config::{Config, RemoteConfig, RepoConfig};
 use discovery::DiscoveredRepo;
-use display::{print_worktree_table, WorktreeDisplay};
-use state::TerminalState;
-use worktree::Worktree;
-use zmx::ZmxSession;
+use display::{WorktreeDisplay, print_worktree_table};
+use ghostty_lib::ghostty;
+use ghostty_lib::state::TerminalState;
+use ghostty_lib::worktree::{self, Worktree};
+use ghostty_lib::zmx::{self, ZmxSession};
 
 #[derive(Parser)]
-#[command(name = "ghostreelite", about = "Worktree manager with zmx sessions + Ghostty splits")]
+#[command(
+    name = "ghostreelite",
+    about = "Worktree manager with zmx sessions + Ghostty splits"
+)]
 struct Cli {
     /// Force a session backend: ghostty, zmx, or auto
     #[arg(long, default_value = "auto")]
@@ -122,6 +122,10 @@ enum ConfigCommands {
     Show,
 }
 
+fn config_dir() -> Result<std::path::PathBuf> {
+    Config::config_dir()
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
     let mut config = Config::load()?;
@@ -150,13 +154,27 @@ fn main() -> Result<()> {
             split,
             new_session,
             repo,
-        }) => cmd_open(&config, &branch, split.as_deref(), repo.as_deref(), new_session, use_ghostty),
+        }) => cmd_open(
+            &config,
+            &branch,
+            split.as_deref(),
+            repo.as_deref(),
+            new_session,
+            use_ghostty,
+        ),
         Some(Commands::New {
             branch,
             repo,
             base,
             split,
-        }) => cmd_new(&config, &branch, repo.as_deref(), base.as_deref(), split.as_deref(), use_ghostty),
+        }) => cmd_new(
+            &config,
+            &branch,
+            repo.as_deref(),
+            base.as_deref(),
+            split.as_deref(),
+            use_ghostty,
+        ),
         Some(Commands::Remove {
             branch,
             repo,
@@ -207,7 +225,10 @@ fn gather_state(config: &Config) -> Result<GatheredState> {
 
     // Local repos: batch using git directly (fast, no network)
     if !local_repos.is_empty() {
-        let paths: Vec<String> = local_repos.iter().map(|dr| dr.config.path.clone()).collect();
+        let paths: Vec<String> = local_repos
+            .iter()
+            .map(|dr| dr.config.path.clone())
+            .collect();
         match worktree::list_worktrees_batch_fast(&paths, None) {
             Ok(batch_result) => {
                 for dr in local_repos {
@@ -223,7 +244,10 @@ fn gather_state(config: &Config) -> Result<GatheredState> {
 
     // Remote repos: batch using git directly over SSH (single SSH call)
     if !remote_repos.is_empty() {
-        let paths: Vec<String> = remote_repos.iter().map(|dr| dr.config.path.clone()).collect();
+        let paths: Vec<String> = remote_repos
+            .iter()
+            .map(|dr| dr.config.path.clone())
+            .collect();
         match worktree::list_worktrees_batch_fast(&paths, config.remote.as_ref()) {
             Ok(batch_result) => {
                 for dr in remote_repos {
@@ -258,11 +282,20 @@ fn find_session_for_worktree<'a>(
     repo_name: &str,
     branch: &str,
 ) -> Option<&'a ZmxSession> {
-    let name = zmx::session_name(repo_name, branch);
-    sessions.iter().find(|s| s.name == name)
+    logic::find_session_for_worktree(sessions, repo_name, branch)
 }
 
 // --- Commands ---
+
+fn load_terminal_state() -> Result<TerminalState> {
+    let dir = config_dir()?;
+    TerminalState::load(&dir)
+}
+
+fn save_terminal_state(state: &TerminalState) -> Result<()> {
+    let dir = config_dir()?;
+    state.save(&dir)
+}
 
 fn cmd_list(config: &Config) -> Result<()> {
     let state = gather_state(config)?;
@@ -296,7 +329,7 @@ fn cmd_open(
 ) -> Result<()> {
     let (dr, repo_name, wt) = resolve_worktree(config, branch, repo_filter)?;
     let remote = dr.remote.as_ref();
-    let mut term_state = TerminalState::load()?;
+    let mut term_state = load_terminal_state()?;
 
     if new_session {
         let session_name = zmx::next_session_name(&repo_name, branch, remote)?;
@@ -304,21 +337,28 @@ fn cmd_open(
             // For splits with --new-session, target the worktree's existing tab
             if let Some(dir) = split {
                 if let Some((_sess, tid)) = term_state.find_valid_terminal(&repo_name, branch) {
-                    println!("New session {} as split ({}) in existing tab", session_name.bold(), dir.dimmed());
+                    println!(
+                        "New session {} as split ({}) in existing tab",
+                        session_name.bold(),
+                        dir.dimmed()
+                    );
                     let new_id = ghostty::split_at(&tid, &session_name, &wt.path, dir, remote)?;
                     term_state.add(&session_name, &new_id);
-                    term_state.save()?;
+                    save_terminal_state(&term_state)?;
                 } else {
-                    println!("New session {} in tab (no existing tab found)", session_name.bold());
+                    println!(
+                        "New session {} in tab (no existing tab found)",
+                        session_name.bold()
+                    );
                     let id = ghostty::open(&session_name, &wt.path, None, remote)?;
                     term_state.add(&session_name, &id);
-                    term_state.save()?;
+                    save_terminal_state(&term_state)?;
                 }
             } else {
                 println!("New session {} in tab", session_name.bold());
                 let id = ghostty::open(&session_name, &wt.path, None, remote)?;
                 term_state.add(&session_name, &id);
-                term_state.save()?;
+                save_terminal_state(&term_state)?;
             }
         } else {
             println!("Attaching to new zmx session {}", session_name.bold());
@@ -329,10 +369,14 @@ fn cmd_open(
         let existing = zmx::find_worktree_sessions(&repo_name, branch, remote)?;
         if existing.is_empty() {
             let session_name = zmx::session_name(&repo_name, branch);
-            println!("Opening {} in new Ghostty tab [{}]", branch.bold(), session_name.dimmed());
+            println!(
+                "Opening {} in new Ghostty tab [{}]",
+                branch.bold(),
+                session_name.dimmed()
+            );
             let id = ghostty::open(&session_name, &wt.path, None, remote)?;
             term_state.add(&session_name, &id);
-            term_state.save()?;
+            save_terminal_state(&term_state)?;
         } else {
             // For each existing session, check if we already have a live terminal.
             // If so, focus it. If not, open a new tab/split.
@@ -356,7 +400,7 @@ fn cmd_open(
                     term_state.add(name, &id);
                 }
             }
-            term_state.save()?;
+            save_terminal_state(&term_state)?;
         }
     } else {
         let session_name = zmx::session_name(&repo_name, branch);
@@ -389,13 +433,17 @@ fn cmd_new(
 
     if use_ghostty {
         match split {
-            Some(dir) => println!("Opening {} in Ghostty split ({})", branch.bold(), dir.dimmed()),
+            Some(dir) => println!(
+                "Opening {} in Ghostty split ({})",
+                branch.bold(),
+                dir.dimmed()
+            ),
             None => println!("Opening {} in new Ghostty tab", branch.bold()),
         }
         let id = ghostty::open(&session_name, &wt.path, split, remote)?;
-        let mut term_state = TerminalState::load()?;
+        let mut term_state = load_terminal_state()?;
         term_state.add(&session_name, &id);
-        term_state.save()?;
+        save_terminal_state(&term_state)?;
     } else {
         println!("Attaching to zmx session {}", session_name.bold());
         zmx::exec_attach(&session_name, &wt.path)?;
@@ -415,9 +463,9 @@ fn cmd_remove(config: &Config, branch: &str, repo_filter: Option<&str>, force: b
     }
 
     // Clean up terminal state
-    let mut term_state = TerminalState::load()?;
+    let mut term_state = load_terminal_state()?;
     term_state.remove_session(&session_name);
-    term_state.save()?;
+    save_terminal_state(&term_state)?;
 
     println!("Removing worktree {}", branch.bold());
     worktree::remove_worktree(&dr.config.path, branch, force, remote)?;
@@ -572,7 +620,11 @@ fn cmd_config(config: &mut Config, command: ConfigCommands) -> Result<()> {
                         scan_dirs: vec![],
                         transport: "ssh".to_string(),
                     });
-                    remote.scan_dirs = value.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+                    remote.scan_dirs = value
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect();
                 }
                 "split_direction" => {
                     config.split_direction = value.clone();
@@ -584,7 +636,11 @@ fn cmd_config(config: &mut Config, command: ConfigCommands) -> Result<()> {
                     config.default_shell = Some(value.clone());
                 }
                 "scan_dirs" => {
-                    config.scan_dirs = value.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+                    config.scan_dirs = value
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect();
                 }
                 _ => bail!("unknown config key: {}", key),
             }
@@ -612,7 +668,15 @@ fn run_picker(config: &Config, use_ghostty: bool) -> Result<()> {
     }
 
     // Build picker items: (sort_key, display, env_name, repo_path, branch, remote)
-    let mut items: Vec<((u8, u64), String, String, String, String, Option<RemoteConfig>)> = Vec::new();
+    #[allow(clippy::type_complexity)]
+    let mut items: Vec<(
+        (u8, u64),
+        String,
+        String,
+        String,
+        String,
+        Option<RemoteConfig>,
+    )> = Vec::new();
 
     for (dr, repo_name, wts) in &state.repos {
         let sessions = state.sessions_for_env(&dr.env_name);
@@ -687,29 +751,61 @@ fn run_picker(config: &Config, use_ghostty: bool) -> Result<()> {
                     _ => None,
                 };
 
-                if is_ctrl && key_char == Some('a') {
-                    create_worktree_interactive(config, &state, use_ghostty)?;
-                } else if is_ctrl && key_char == Some('d') {
-                    picker_remove(repo_path, branch, &repo_name, remote.as_ref())?;
-                } else if is_ctrl && key_char == Some('n') {
-                    // New session in new tab
-                    let session_name = zmx::next_session_name(&repo_name, branch, remote.as_ref())?;
-                    if use_ghostty {
-                        println!("New session {} in tab", session_name.bold());
-                        let id = ghostty::open(&session_name, &worktree_path_for(repo_path, branch, remote.as_ref())?, None, remote.as_ref())?;
-                        let mut ts = TerminalState::load()?;
-                        ts.add(&session_name, &id);
-                        ts.save()?;
+                match logic::resolve_picker_action(is_ctrl, key_char) {
+                    logic::PickerAction::NewWorktree => {
+                        create_worktree_interactive(config, &state, use_ghostty)?;
                     }
-                } else if is_ctrl && key_char == Some('s') {
-                    // Split right: find existing tab, split it
-                    picker_split(config, &repo_name, repo_path, branch, remote.as_ref(), "right", use_ghostty)?;
-                } else if is_ctrl && key_char == Some('v') {
-                    // Split down: find existing tab, split it
-                    picker_split(config, &repo_name, repo_path, branch, remote.as_ref(), "down", use_ghostty)?;
-                } else {
-                    // Default: open/reattach
-                    picker_open(config, &repo_name, repo_path, branch, remote.as_ref(), use_ghostty)?;
+                    logic::PickerAction::Remove => {
+                        picker_remove(repo_path, branch, &repo_name, remote.as_ref())?;
+                    }
+                    logic::PickerAction::NewSession => {
+                        let session_name =
+                            zmx::next_session_name(&repo_name, branch, remote.as_ref())?;
+                        if use_ghostty {
+                            println!("New session {} in tab", session_name.bold());
+                            let id = ghostty::open(
+                                &session_name,
+                                &worktree_path_for(repo_path, branch, remote.as_ref())?,
+                                None,
+                                remote.as_ref(),
+                            )?;
+                            let mut ts = load_terminal_state()?;
+                            ts.add(&session_name, &id);
+                            save_terminal_state(&ts)?;
+                        }
+                    }
+                    logic::PickerAction::SplitRight => {
+                        picker_split(
+                            config,
+                            &repo_name,
+                            repo_path,
+                            branch,
+                            remote.as_ref(),
+                            "right",
+                            use_ghostty,
+                        )?;
+                    }
+                    logic::PickerAction::SplitDown => {
+                        picker_split(
+                            config,
+                            &repo_name,
+                            repo_path,
+                            branch,
+                            remote.as_ref(),
+                            "down",
+                            use_ghostty,
+                        )?;
+                    }
+                    logic::PickerAction::Open => {
+                        picker_open(
+                            config,
+                            &repo_name,
+                            repo_path,
+                            branch,
+                            remote.as_ref(),
+                            use_ghostty,
+                        )?;
+                    }
                 }
             }
         }
@@ -720,7 +816,11 @@ fn run_picker(config: &Config, use_ghostty: bool) -> Result<()> {
 }
 
 /// Helper: get worktree path for a branch in a repo
-fn worktree_path_for(repo_path: &str, branch: &str, remote: Option<&RemoteConfig>) -> Result<String> {
+fn worktree_path_for(
+    repo_path: &str,
+    branch: &str,
+    remote: Option<&RemoteConfig>,
+) -> Result<String> {
     let wt = worktree::find_worktree(repo_path, branch, remote)?
         .with_context(|| format!("worktree '{}' not found", branch))?;
     Ok(wt.path)
@@ -744,11 +844,15 @@ fn picker_open(
 
     let wt_path = worktree_path_for(repo_path, branch, remote)?;
     let existing = zmx::find_worktree_sessions(repo_name, branch, remote)?;
-    let mut term_state = TerminalState::load()?;
+    let mut term_state = load_terminal_state()?;
 
     if existing.is_empty() {
         let session_name = zmx::session_name(repo_name, branch);
-        println!("Opening {} in new tab [{}]", branch.bold(), session_name.dimmed());
+        println!(
+            "Opening {} in new tab [{}]",
+            branch.bold(),
+            session_name.dimmed()
+        );
         let id = ghostty::open(&session_name, &wt_path, None, remote)?;
         term_state.add(&session_name, &id);
     } else {
@@ -771,7 +875,7 @@ fn picker_open(
         }
     }
 
-    term_state.save()?;
+    save_terminal_state(&term_state)?;
     Ok(())
 }
 
@@ -792,21 +896,30 @@ fn picker_split(
 
     let wt_path = worktree_path_for(repo_path, branch, remote)?;
     let session_name = zmx::next_session_name(repo_name, branch, remote)?;
-    let mut term_state = TerminalState::load()?;
+    let mut term_state = load_terminal_state()?;
 
     // Try to find an existing terminal for this worktree
     if let Some((_sess, tid)) = term_state.find_valid_terminal(repo_name, branch) {
-        println!("Splitting {} ({}) [{}]", branch.bold(), direction.dimmed(), session_name.dimmed());
+        println!(
+            "Splitting {} ({}) [{}]",
+            branch.bold(),
+            direction.dimmed(),
+            session_name.dimmed()
+        );
         let new_id = ghostty::split_at(&tid, &session_name, &wt_path, direction, remote)?;
         term_state.add(&session_name, &new_id);
     } else {
         // No existing tab found, create a new tab instead
-        println!("No existing tab for {}, opening new tab [{}]", branch.bold(), session_name.dimmed());
+        println!(
+            "No existing tab for {}, opening new tab [{}]",
+            branch.bold(),
+            session_name.dimmed()
+        );
         let id = ghostty::open(&session_name, &wt_path, None, remote)?;
         term_state.add(&session_name, &id);
     }
 
-    term_state.save()?;
+    save_terminal_state(&term_state)?;
     Ok(())
 }
 
@@ -838,7 +951,7 @@ fn picker_remove(
     let choice = input_buf.trim();
 
     // Clean up terminal state for killed sessions
-    let mut term_state = TerminalState::load()?;
+    let mut term_state = load_terminal_state()?;
 
     if has_sessions {
         match choice {
@@ -847,7 +960,7 @@ fn picker_remove(
                     zmx::kill_session(&s.name, remote)?;
                     term_state.remove_session(&s.name);
                 }
-                term_state.save()?;
+                save_terminal_state(&term_state)?;
                 println!("{} Killed {} session(s)", "✓".green(), sessions.len());
             }
             "2" => {
@@ -856,7 +969,7 @@ fn picker_remove(
                     term_state.remove_session(&s.name);
                 }
                 worktree::remove_worktree(repo_path, branch, false, remote)?;
-                term_state.save()?;
+                save_terminal_state(&term_state)?;
                 println!(
                     "{} Removed {} and {} session(s)",
                     "✓".green(),
@@ -957,9 +1070,9 @@ fn create_worktree_interactive(
     if use_ghostty {
         println!("Opening {} in new tab", branch.bold());
         let id = ghostty::open(&session_name, &wt.path, None, remote)?;
-        let mut term_state = TerminalState::load()?;
+        let mut term_state = load_terminal_state()?;
         term_state.add(&session_name, &id);
-        term_state.save()?;
+        save_terminal_state(&term_state)?;
     } else {
         zmx::exec_attach(&session_name, &wt.path)?;
     }
@@ -976,14 +1089,14 @@ fn resolve_worktree(
 ) -> Result<(DiscoveredRepo, String, Worktree)> {
     let discovered = discovery::discover_repos(config)?;
     for dr in discovered {
-        if let Some(filter) = repo_filter {
-            if dr.config.path != filter && !dr.config.path.ends_with(filter) {
-                continue;
-            }
+        if let Some(filter) = repo_filter
+            && dr.config.path != filter
+            && !dr.config.path.ends_with(filter)
+        {
+            continue;
         }
         let repo_name = zmx::repo_name_from_path(&dr.config.path);
-        if let Ok(Some(wt)) = worktree::find_worktree(&dr.config.path, branch, dr.remote.as_ref())
-        {
+        if let Ok(Some(wt)) = worktree::find_worktree(&dr.config.path, branch, dr.remote.as_ref()) {
             return Ok((dr, repo_name, wt));
         }
     }
