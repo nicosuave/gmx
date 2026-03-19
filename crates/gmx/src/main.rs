@@ -13,7 +13,7 @@ use ghostty_lib::zmx;
 #[command(
     name = "gmx",
     about = "gmx - Ghostty Multiplexer with zmx session persistence",
-    override_help = "gmx - Ghostty Multiplexer with zmx session persistence\n\nUsage: gmx <command> [args]\n\nCommands:\n  [n]ew [name] [--tab] [--remote R] [--dir D]   Create a new session (name defaults to cwd)\n  [a]ttach <name> [--tab]                       Reattach to a session\n  [d]etach                                      Detach from current session (ctrl+\\ also works)\n  [k]ill [name]                                 Kill a session (defaults to current)\n  [l]s                                          List sessions\n  [s]plit [right|down]                           Add a split to the current session\n  [r]ename <old> <new>                           Rename a session\n  [c]onfig remote <name> <host>                  Configure a remote host\n  key[b]inds install|uninstall|show              Manage Ghostty keybindings\n\nBy default, new and attach work in the current terminal.\nUse --tab to open in a new Ghostty tab instead."
+    override_help = "gmx - Ghostty Multiplexer with zmx session persistence\n\nUsage: gmx <command> [args]\n\nCommands:\n  [n]ew [name] [--tab] [--remote R] [--dir D]   Create a new session (name defaults to cwd)\n  [a]ttach <name> [--tab]                       Reattach to a session\n  [d]etach                                      Detach from current session (ctrl+\\ also works)\n  [k]ill [name]                                 Kill a session (defaults to current)\n  [l]s                                          List sessions\n  [s]plit [right|down]                           Add a split to the current session\n  [r]ename <old> <new>                           Rename a session\n  [c]onfig remote <name> <host>                  Configure a remote host\n  key[b]inds install|uninstall|show              Manage Ghostty keybindings\n  completions <bash|zsh|fish>                    Output shell completion scripts\n\nBy default, new and attach work in the current terminal.\nUse --tab to open in a new Ghostty tab instead."
 )]
 struct Cli {
     #[command(subcommand)]
@@ -57,7 +57,11 @@ enum Commands {
     Detach,
     /// List sessions
     #[command(alias = "l")]
-    Ls,
+    Ls {
+        /// Output only session names, one per line (for shell completions)
+        #[arg(long)]
+        short: bool,
+    },
     /// Add a split to the current session
     #[command(alias = "s")]
     Split {
@@ -84,6 +88,11 @@ enum Commands {
     Keybinds {
         #[command(subcommand)]
         command: KeybindsCommands,
+    },
+    /// Output shell completion scripts
+    Completions {
+        /// Shell: bash, zsh, or fish
+        shell: String,
     },
 }
 
@@ -136,11 +145,12 @@ fn main() -> Result<()> {
         Some(Commands::Attach { name, tab }) => cmd_attach(&name, tab),
         Some(Commands::Kill { name }) => cmd_kill(name.as_deref()),
         Some(Commands::Detach) => cmd_detach(),
-        Some(Commands::Ls) => cmd_ls(),
+        Some(Commands::Ls { short }) => cmd_ls(short),
         Some(Commands::Split { direction }) => cmd_split(&direction),
         Some(Commands::Rename { old, new }) => cmd_rename(&old, &new),
         Some(Commands::Config { command }) => cmd_config(command),
         Some(Commands::Keybinds { command }) => cmd_keybinds(command),
+        Some(Commands::Completions { shell }) => cmd_completions(&shell),
         None => {
             // Show the same help as --help
             Cli::parse_from(["gmx", "--help"]);
@@ -394,7 +404,7 @@ fn cmd_detach() -> Result<()> {
     Err(err).context("failed to exec zmx detach")
 }
 
-fn cmd_ls() -> Result<()> {
+fn cmd_ls(short: bool) -> Result<()> {
     let registry = SessionRegistry::load()?;
     let config = GmxConfig::load()?;
 
@@ -429,7 +439,16 @@ fn cmd_ls() -> Result<()> {
     }
 
     if discovered.is_empty() {
-        eprintln!("No sessions. Create one with: gmx new <name>");
+        if !short {
+            eprintln!("No sessions. Create one with: gmx new <name>");
+        }
+        return Ok(());
+    }
+
+    if short {
+        for name in discovered.keys() {
+            println!("{}", name);
+        }
         return Ok(());
     }
 
@@ -689,6 +708,157 @@ fn cmd_keybinds(command: KeybindsCommands) -> Result<()> {
         }
     }
 }
+
+// --- Completions ---
+
+fn cmd_completions(shell: &str) -> Result<()> {
+    match shell {
+        "bash" => print!("{}", BASH_COMPLETIONS),
+        "zsh" => print!("{}", ZSH_COMPLETIONS),
+        "fish" => print!("{}", FISH_COMPLETIONS),
+        _ => bail!("unknown shell '{}'. Use: bash, zsh, or fish", shell),
+    }
+    Ok(())
+}
+
+const BASH_COMPLETIONS: &str = r#"_gmx_completions() {
+  local cur prev
+  COMPREPLY=()
+  cur="${COMP_WORDS[COMP_CWORD]}"
+  prev="${COMP_WORDS[COMP_CWORD-1]}"
+
+  if [[ $COMP_CWORD -eq 1 ]]; then
+    COMPREPLY=($(compgen -W "new attach detach kill ls split rename config keybinds completions n a d k l s r c b" -- "$cur"))
+    return 0
+  fi
+
+  case "$prev" in
+    attach|a|kill|k|rename|r)
+      local sessions=$(gmx ls --short 2>/dev/null)
+      COMPREPLY=($(compgen -W "$sessions" -- "$cur"))
+      ;;
+    split|s)
+      COMPREPLY=($(compgen -W "right down" -- "$cur"))
+      ;;
+    config|c)
+      COMPREPLY=($(compgen -W "remote show" -- "$cur"))
+      ;;
+    keybinds|b)
+      COMPREPLY=($(compgen -W "install uninstall show" -- "$cur"))
+      ;;
+    completions)
+      COMPREPLY=($(compgen -W "bash zsh fish" -- "$cur"))
+      ;;
+  esac
+}
+complete -o bashdefault -o default -F _gmx_completions gmx
+"#;
+
+const ZSH_COMPLETIONS: &str = r#"_gmx() {
+  local context state state_descr line
+  typeset -A opt_args
+
+  _arguments -C \
+    '1: :->commands' \
+    '2: :->args' \
+    '*: :->trailing' \
+    && return 0
+
+  case $state in
+    commands)
+      local -a commands
+      commands=(
+        'new:Create a new session'
+        'attach:Reattach to a session'
+        'detach:Detach from current session'
+        'kill:Kill a session'
+        'ls:List sessions'
+        'split:Add a split to the current session'
+        'rename:Rename a session'
+        'config:Configure gmx settings'
+        'keybinds:Manage Ghostty keybindings'
+        'completions:Output shell completion scripts'
+        'n:Create a new session'
+        'a:Reattach to a session'
+        'd:Detach from current session'
+        'k:Kill a session'
+        'l:List sessions'
+        's:Add a split'
+        'r:Rename a session'
+        'c:Configure gmx'
+        'b:Manage keybindings'
+      )
+      _describe 'command' commands
+      ;;
+    args)
+      case $words[2] in
+        attach|a|kill|k|rename|r)
+          _gmx_sessions
+          ;;
+        split|s)
+          _values 'direction' 'right' 'down'
+          ;;
+        config|c)
+          _values 'subcommand' 'remote' 'show'
+          ;;
+        keybinds|b)
+          _values 'subcommand' 'install' 'uninstall' 'show'
+          ;;
+        completions)
+          _values 'shell' 'bash' 'zsh' 'fish'
+          ;;
+        new|n)
+          _gmx_sessions
+          ;;
+      esac
+      ;;
+    trailing)
+      case $words[2] in
+        new|n|attach|a)
+          _arguments '--tab[Open in new Ghostty tab]' '--remote[Remote host]:host:' '--dir[Working directory]:dir:_directories'
+          ;;
+      esac
+      ;;
+  esac
+}
+
+_gmx_sessions() {
+  local -a sessions
+  local local_sessions=$(gmx ls --short 2>/dev/null)
+  if [[ -n "$local_sessions" ]]; then
+    sessions+=(${(f)local_sessions})
+  fi
+  _describe 'session' sessions
+}
+
+compdef _gmx gmx
+"#;
+
+const FISH_COMPLETIONS: &str = r#"complete -c gmx -f
+
+complete -c gmx -n "__fish_is_nth_token 1" -a 'n new' -d 'Create a new session'
+complete -c gmx -n "__fish_is_nth_token 1" -a 'a attach' -d 'Reattach to a session'
+complete -c gmx -n "__fish_is_nth_token 1" -a 'd detach' -d 'Detach from current session'
+complete -c gmx -n "__fish_is_nth_token 1" -a 'k kill' -d 'Kill a session'
+complete -c gmx -n "__fish_is_nth_token 1" -a 'l ls' -d 'List sessions'
+complete -c gmx -n "__fish_is_nth_token 1" -a 's split' -d 'Add a split'
+complete -c gmx -n "__fish_is_nth_token 1" -a 'r rename' -d 'Rename a session'
+complete -c gmx -n "__fish_is_nth_token 1" -a 'c config' -d 'Configure gmx'
+complete -c gmx -n "__fish_is_nth_token 1" -a 'b keybinds' -d 'Manage keybindings'
+complete -c gmx -n "__fish_is_nth_token 1" -a 'completions' -d 'Shell completions'
+
+complete -c gmx -n "__fish_is_nth_token 2; and __fish_seen_subcommand_from a attach k kill r rename" -a '(gmx ls --short 2>/dev/null)' -d 'Session name'
+complete -c gmx -n "__fish_is_nth_token 2; and __fish_seen_subcommand_from s split" -a 'right down' -d 'Direction'
+complete -c gmx -n "__fish_is_nth_token 2; and __fish_seen_subcommand_from c config" -a 'remote show' -d 'Config subcommand'
+complete -c gmx -n "__fish_is_nth_token 2; and __fish_seen_subcommand_from b keybinds" -a 'install uninstall show' -d 'Keybinds subcommand'
+complete -c gmx -n "__fish_is_nth_token 2; and __fish_seen_subcommand_from completions" -a 'bash zsh fish' -d 'Shell'
+
+complete -c gmx -n "__fish_seen_subcommand_from n new" -l tab -d 'Open in new Ghostty tab'
+complete -c gmx -n "__fish_seen_subcommand_from n new" -l remote -d 'Remote host' -r
+complete -c gmx -n "__fish_seen_subcommand_from n new" -l dir -d 'Working directory' -r
+complete -c gmx -n "__fish_seen_subcommand_from a attach" -l tab -d 'Recreate layout in new tab'
+complete -c gmx -n "__fish_seen_subcommand_from l ls" -l short -d 'Short output'
+"#;
 
 fn remove_gmx_block(content: &str) -> String {
     let mut result = String::new();
