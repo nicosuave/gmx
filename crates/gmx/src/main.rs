@@ -168,7 +168,12 @@ fn auto_session_name() -> String {
         .unwrap_or_else(|| "gmx".to_string())
 }
 
-fn cmd_new(name: Option<&str>, remote_name: Option<&str>, dir: Option<&str>, tab: bool) -> Result<()> {
+fn cmd_new(
+    name: Option<&str>,
+    remote_name: Option<&str>,
+    dir: Option<&str>,
+    tab: bool,
+) -> Result<()> {
     let config = GmxConfig::load()?;
     let remote = resolve_remote(&config, remote_name)?;
 
@@ -339,9 +344,8 @@ fn cmd_kill(name: Option<&str>) -> Result<()> {
     let env_session = std::env::var("GMX_SESSION").ok();
     let name = match name {
         Some(n) => n.to_string(),
-        None => env_session.context(
-            "no session name given and not inside a gmx session (GMX_SESSION not set)",
-        )?,
+        None => env_session
+            .context("no session name given and not inside a gmx session (GMX_SESSION not set)")?,
     };
     let name = &name;
     let config = GmxConfig::load()?;
