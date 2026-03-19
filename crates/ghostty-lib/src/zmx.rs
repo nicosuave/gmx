@@ -37,6 +37,11 @@ fn parse_zmx_list(output: &str) -> Vec<ZmxSession> {
                 .filter_map(|field| field.split_once('='))
                 .collect();
 
+            // Skip unreachable/stale sessions (zombie socket files)
+            if fields.get("status") == Some(&"unreachable") {
+                return None;
+            }
+
             let name = fields
                 .get("session_name")
                 .or_else(|| fields.get("name"))?
