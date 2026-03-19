@@ -543,9 +543,9 @@ fn generate_keybinds(prefix: Option<&str>) -> String {
 keybind = {pfx}=activate_key_table_once:gmx
 keybind = gmx/d=text:gmx split right\n
 keybind = gmx/e=text:gmx split down\n
-keybind = gmx/c=text:gmx new --tab \n
-keybind = gmx/a=text:gmx attach \n
-keybind = gmx/x=text:gmx kill \n
+keybind = gmx/c=text:gmx new --tab
+keybind = gmx/a=text:gmx attach
+keybind = gmx/x=text:gmx kill
 keybind = gmx/s=text:gmx ls\n
 keybind = gmx/escape=deactivate_key_table
 {end}"#,
@@ -560,9 +560,9 @@ keybind = gmx/escape=deactivate_key_table
                 r#"{marker}
 keybind = ctrl+shift+d=text:gmx split right\n
 keybind = ctrl+shift+e=text:gmx split down\n
-keybind = ctrl+shift+t=text:gmx new --tab \n
-keybind = ctrl+shift+a=text:gmx attach \n
-keybind = ctrl+shift+x=text:gmx kill \n
+keybind = ctrl+shift+t=text:gmx new --tab
+keybind = ctrl+shift+a=text:gmx attach
+keybind = ctrl+shift+x=text:gmx kill
 keybind = ctrl+shift+s=text:gmx ls\n
 {end}"#,
                 marker = GMX_KEYBINDS_MARKER,
