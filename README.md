@@ -7,8 +7,7 @@ It aims to be vaguely tmux compatible but does not aim to be 100% tmux compatibl
 ## Install
 
 ```
-brew tap nicosuave/tap
-brew install gmx
+brew tap nicosuave/tap/gmx
 ```
 
 This installs zmx as a dependency.
