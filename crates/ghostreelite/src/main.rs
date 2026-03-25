@@ -363,7 +363,7 @@ fn cmd_open(
             }
         } else {
             println!("Attaching to new zmx session {}", session_name.bold());
-            zmx::exec_attach(&session_name, &wt.path)?;
+            zmx::exec_attach(&session_name, &wt.path, None)?;
         }
     } else if use_ghostty {
         // Reattach all existing sessions for this worktree, or create one if none exist
@@ -406,7 +406,7 @@ fn cmd_open(
     } else {
         let session_name = zmx::session_name(&repo_name, branch);
         println!("Attaching to zmx session {}", session_name.bold());
-        zmx::exec_attach(&session_name, &wt.path)?;
+        zmx::exec_attach(&session_name, &wt.path, None)?;
     }
 
     Ok(())
@@ -447,7 +447,7 @@ fn cmd_new(
         save_terminal_state(&term_state)?;
     } else {
         println!("Attaching to zmx session {}", session_name.bold());
-        zmx::exec_attach(&session_name, &wt.path)?;
+        zmx::exec_attach(&session_name, &wt.path, None)?;
     }
 
     Ok(())
@@ -839,7 +839,7 @@ fn picker_open(
     if !use_ghostty {
         let session_name = zmx::session_name(repo_name, branch);
         let wt_path = worktree_path_for(repo_path, branch, remote)?;
-        zmx::exec_attach(&session_name, &wt_path)?;
+        zmx::exec_attach(&session_name, &wt_path, None)?;
         return Ok(());
     }
 
@@ -1075,7 +1075,7 @@ fn create_worktree_interactive(
         term_state.add(&session_name, &id);
         save_terminal_state(&term_state)?;
     } else {
-        zmx::exec_attach(&session_name, &wt.path)?;
+        zmx::exec_attach(&session_name, &wt.path, None)?;
     }
 
     Ok(())

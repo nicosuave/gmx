@@ -128,16 +128,43 @@ pub fn ensure_session(
 /// Exec into a zmx session (replaces current process). For zmx-only mode.
 /// This combines create + attach: if the session doesn't exist, zmx creates it.
 /// The session dies when the client disconnects.
+/// For remote sessions, execs into ssh/mosh instead of zmx directly.
 #[cfg(unix)]
-pub fn exec_attach(session_name: &str, worktree_path: &str) -> Result<()> {
+pub fn exec_attach(
+    session_name: &str,
+    worktree_path: &str,
+    remote: Option<&RemoteConfig>,
+) -> Result<()> {
     use std::os::unix::process::CommandExt;
-    let args = attach_command(session_name, worktree_path);
-    // Clear ZMX_SESSION so zmx doesn't think we're already in a session.
-    // This allows `gmx new` to work from inside an existing zmx session.
-    let err = std::process::Command::new(&args[0])
-        .args(&args[1..])
-        .env_remove("ZMX_SESSION")
-        .exec();
+
+    let err = match remote {
+        Some(r) => {
+            let target = r.ssh_target();
+            let zmx_cmd = format!(
+                "cd '{}' && zmx attach {}",
+                worktree_path.replace('\'', "'\\''"),
+                session_name
+            );
+            if r.use_mosh() {
+                std::process::Command::new("mosh")
+                    .args([&target, "--", "sh", "-c", &zmx_cmd])
+                    .env_remove("ZMX_SESSION")
+                    .exec()
+            } else {
+                std::process::Command::new("ssh")
+                    .args(["-t", &target, &zmx_cmd])
+                    .env_remove("ZMX_SESSION")
+                    .exec()
+            }
+        }
+        None => {
+            let args = attach_command(session_name, worktree_path);
+            std::process::Command::new(&args[0])
+                .args(&args[1..])
+                .env_remove("ZMX_SESSION")
+                .exec()
+        }
+    };
     // exec only returns on error
     Err(err).context("failed to exec zmx attach")
 }
@@ -145,13 +172,42 @@ pub fn exec_attach(session_name: &str, worktree_path: &str) -> Result<()> {
 /// Exec into an existing zmx session (client-only, no command).
 /// The session must already exist (created via ensure_session).
 /// The session persists after the client disconnects.
+/// For remote sessions, execs into ssh/mosh instead of zmx directly.
 #[cfg(unix)]
-pub fn exec_attach_only(session_name: &str) -> Result<()> {
+pub fn exec_attach_only(
+    session_name: &str,
+    dir: &str,
+    remote: Option<&RemoteConfig>,
+) -> Result<()> {
     use std::os::unix::process::CommandExt;
-    let err = std::process::Command::new("zmx")
-        .args(["attach", session_name])
-        .env_remove("ZMX_SESSION")
-        .exec();
+
+    let err = match remote {
+        Some(r) => {
+            let target = r.ssh_target();
+            let zmx_cmd = format!(
+                "cd '{}' && zmx attach {}",
+                dir.replace('\'', "'\\''"),
+                session_name
+            );
+            if r.use_mosh() {
+                std::process::Command::new("mosh")
+                    .args([&target, "--", "sh", "-c", &zmx_cmd])
+                    .env_remove("ZMX_SESSION")
+                    .exec()
+            } else {
+                std::process::Command::new("ssh")
+                    .args(["-t", &target, &zmx_cmd])
+                    .env_remove("ZMX_SESSION")
+                    .exec()
+            }
+        }
+        None => {
+            std::process::Command::new("zmx")
+                .args(["attach", session_name])
+                .env_remove("ZMX_SESSION")
+                .exec()
+        }
+    };
     Err(err).context("failed to exec zmx attach")
 }
 

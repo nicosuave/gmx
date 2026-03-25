@@ -13,7 +13,7 @@ use ghostty_lib::zmx;
 #[command(
     name = "gmx",
     about = "gmx - Ghostty Multiplexer with zmx session persistence",
-    override_help = "gmx - Ghostty Multiplexer with zmx session persistence\n\nUsage: gmx <command> [args]\n\nCommands:\n  [n]ew [name] [--tab] [--remote R] [--dir D]   Create a new session (name defaults to cwd)\n  [a]ttach <name> [--tab]                       Reattach to a session\n  [d]etach                                      Detach from current session (ctrl+\\ also works)\n  [k]ill [name]                                 Kill a session (defaults to current)\n  [l]s                                          List sessions\n  [s]plit [right|down]                           Add a split to the current session\n  [r]ename <old> <new>                           Rename a session\n  [c]onfig remote <name> <host>                  Configure a remote host\n  key[b]inds install|uninstall|show              Manage Ghostty keybindings\n  completions install|uninstall|show <shell>      Shell tab completions\n\nBy default, new and attach work in the current terminal.\nUse --tab to open in a new Ghostty tab instead."
+    override_help = "gmx - Ghostty Multiplexer with zmx session persistence\n\nUsage: gmx <command> [args]\n\nCommands:\n  [n]ew [name] [--tab] [--remote R] [--dir D]   Create a new session (name defaults to cwd)\n  [a]ttach <name> [--tab]                       Reattach to a session\n  [d]etach                                      Detach from current session (ctrl+\\ also works)\n  [k]ill [name]                                 Kill a session (defaults to current)\n  [l]s                                          List sessions\n  [s]plit [right|down]                           Add a split to the current session\n  [r]ename <old> <new>                           Rename a session\n  [c]onfig remote <name> <host>                  Configure a remote host\n  key[b]inds install|uninstall|show              Manage Ghostty keybindings\n  completions <shell>|install|uninstall            Shell tab completions\n\nBy default, new and attach work in the current terminal.\nUse --tab to open in a new Ghostty tab instead."
 )]
 struct Cli {
     #[command(subcommand)]
@@ -144,6 +144,12 @@ enum CompletionsCommands {
         /// Shell
         shell: String,
     },
+    /// Print zsh completion script
+    Zsh,
+    /// Print bash completion script
+    Bash,
+    /// Print fish completion script
+    Fish,
 }
 
 fn main() -> Result<()> {
@@ -269,7 +275,7 @@ fn cmd_new(
             std::env::set_var("GMX_IDX", "1");
         }
         eprintln!("Created session '{}'", name);
-        zmx::exec_attach(&zmx_name, &working_dir)?;
+        zmx::exec_attach(&zmx_name, &working_dir, remote.as_ref())?;
     }
     Ok(())
 }
@@ -359,7 +365,7 @@ fn cmd_attach(name: &str, tab: bool) -> Result<()> {
             std::env::set_var("GMX_IDX", "1");
         }
         eprintln!("Attaching to '{}' ({} pane(s))", name, sessions.len());
-        zmx::exec_attach_only(&first.name)?;
+        zmx::exec_attach_only(&first.name, dir, remote.as_ref())?;
     }
 
     eprintln!("Attached to '{}' ({} terminal(s))", name, sessions.len());
@@ -753,6 +759,18 @@ fn cmd_completions(command: CompletionsCommands) -> Result<()> {
                 "fish" => print!("{}", FISH_COMPLETIONS),
                 _ => bail!("unknown shell '{}'. Use: bash, zsh, or fish", shell),
             }
+            Ok(())
+        }
+        CompletionsCommands::Zsh => {
+            print!("{}", ZSH_COMPLETIONS);
+            Ok(())
+        }
+        CompletionsCommands::Bash => {
+            print!("{}", BASH_COMPLETIONS);
+            Ok(())
+        }
+        CompletionsCommands::Fish => {
+            print!("{}", FISH_COMPLETIONS);
             Ok(())
         }
         CompletionsCommands::Install => {
