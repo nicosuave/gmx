@@ -435,7 +435,9 @@ fn cmd_ls(short: bool) -> Result<()> {
     // Merge registry entries (for remote/dir info) with discovered sessions
     // Also include registry entries for dead sessions
     for (name, entry) in &registry.sessions {
-        if !discovered.contains_key(name.as_str()) {
+        if entry.remote.is_some() {
+            // Always check the remote for remote entries, even if a local session
+            // has the same name prefix (local match would be an orphan, not this session)
             let remote = match &entry.remote {
                 Some(r) => resolve_remote(&config, Some(r)).ok().flatten(),
                 None => None,
@@ -448,6 +450,9 @@ fn cmd_ls(short: bool) -> Result<()> {
                 0
             };
             discovered.insert(name.clone(), remote_count);
+        } else if !discovered.contains_key(name.as_str()) {
+            // Local registry entries not already found in zmx scan -> dead
+            discovered.insert(name.clone(), 0);
         }
     }
 
